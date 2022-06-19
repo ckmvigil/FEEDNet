@@ -21,8 +21,13 @@ def main(args):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = np.expand_dims(img, 0)
     pred = model.predict(img).numpy()
-    
-    plt.imsave(os.path.join(INFERENCE_DIR, "{}.png".format(os.path.splitext(os.path.basename(args["image"]))[0])), seg[0][:, :, 0])
+    pred_mask = tf.keras.utils.to_categorical(pred.argmax(-1), num_classes = 2)
+    pred_mask = onehot_to_rgb(pred_mask)
+    pred_mask = process_utils(pred_mask, "seg_nuc")
+    pred_mask = remap_label(pred_mask, by_size=True)
+    overlaid_pred_mask = visualize_instances(pred_mask, img)
+    overlaid_pred_mask = cv2.cvtColor(overlaid_pred_mask, cv2.COLOR_BGR2RGB)
+    plt.imsave(os.path.join(INFERENCE_DIR, "{}.png".format(os.path.splitext(os.path.basename(args["image"]))[0])), overlaid_pred_mask)
     logging.info("[Info] Overlay image is saved in Inference directory")
 
 if __name__ == '__main__':
