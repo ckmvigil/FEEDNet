@@ -2,110 +2,128 @@
 import sys
 sys.path.append("../src")
 
-from sklearn.model_selection import train_test_split
+from tensorflow.keras.utils import Sequence
+import albumentations as A
 import tensorflow as tf
+from glob import glob
 from config import *
 from utils import *
 import numpy as np
+import cv2
 import os
 
-class waferSegDataLoaderContrastive(tf.keras.utils.Sequence):
-    """Dataloader class to iterate over the data (as Numpy arrays) for
-       Pre-Training encoder with npair Contrastive. 
-    """
-    def __init__(self, batchSize, imgSize, inputImgPaths, labelsImgPaths):
-        self.batchSize = batchSize
-        self.imgSize = imgSize
-        self.inputImgPaths = inputImgPaths
-        self.labelsImgPaths = labelsImgPaths
+images_train  = glob(os.path.join(TRAIN_IMAGES, "/*"))
+masks_train  = glob(os.path.join(TRAIN_MASKS, "/*"))
+images_test  = glob(os.path.join(TEST_IMAGES, "/*"))
+masks_test  = glob(os.path.join(TEST_MASKS, "/*"))
 
-    def __len__(self):
-        return len(self.inputImgPaths) // self.batchSize
+images_train = make_list(images_train)
+masks_train = make_list(masks_train)
+images_test = make_list(images_test)
+masks_test = make_list(masks_test)
 
-    def __getitem__(self, idx):
-        """Returns tuple (input, target) correspond to batch #idx."""
-        i = idx * self.batchSize
-        batchInputImgPaths = self.inputImgPaths[i : i + self.batchSize]
-        batchLabelsImgPaths = self.labelsImgPaths[i : i + self.batchSize]
+# Data Generator Class
+class CoNSePDataset(Sequence):
+    def _init_(self, img_paths = None, mask_paths = None, aug = True):
+        self.img_paths = img_paths
+        self.mask_paths = mask_paths
+        self.aug = aug
+        self.transform = A.Compose([      
+            A.VerticalFlip(p = 0.5),
+            A.HorizontalFlip(p = 0.4),
+            A.Transpose(p = 0.5),          
+            A.RandomRotate90(p = 0.5),
+            A.GridDistortion(p = 0.3),
+            A.OpticalDistortion(distort_limit=2, shift_limit=0.5, p=0.5),
+            A.ElasticTransform(p=0.5, alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03),
+            A.RandomBrightnessContrast(p=0.4),    
+            A.RandomGamma(p=0.5)
+        ])
+        assert len(self.img_paths) == len(self.mask_paths)
+        self.images = len(self.img_paths) #list all the files present in that folder...
+  
+    def _len_(self):
+        return len(self.img_paths) #length of dataset
+  
+    def _getitem_(self, index):
+        img_path = self.img_paths[index]
+        mask_path = self.mask_paths[index]
+        image = cv2.imread(img_path)
+        mask = cv2.imread(mask_path)
 
-        x = np.zeros((self.batchSize,) + self.imgSize + (3,), dtype = "float32")
-        z = np.zeros((self.batchSize,), dtype = "float32")
-        for j, (input_image, input_label) in enumerate(zip(batchInputImgPaths, batchLabelsImgPaths)):
-            img = np.load(input_image)
-            x[j] = img.astype("float32") / 255.0
-            
-            lbl = np.load(input_label)
-            lbl = CLASS_MAPPING[str(lbl)]
-            z[j] = lbl
+        if self.aug:
+            augment = self.transform(image = image, mask = mask)
+            image = augment['image']
+            mask = augment['mask']
 
-        return x, z
+        image = image.astype(np.float32)
+        image = image/255.0
+        
+        mask = mask.astype(np.float32)
+        mask = rgb_to_onehot(mask)
+        mask = np.expand_dims(mask, axis = 0)
+        return np.expand_dims(image, axis = 0), mask
 
-class waferSegClassDataLoader(tf.keras.utils.Sequence):
-    """Dataloader class to iterate over the data (as Numpy arrays) for 
-       segmentation and classification branch"""
-    def __init__(self, batchSize, imgSize, inputImgPaths, targetImgPaths, 
-                labelsImgPaths):
-        self.batchSize = batchSize
-        self.imgSize = imgSize
-        self.inputImgPaths = inputImgPaths
-        self.targetImgPaths = targetImgPaths
-        self.labelsImgPaths = labelsImgPaths
+class CPMKUMARDataset(Sequence):
+  def _init_(self, img_paths = None, mask_paths = None, aug = False):
+    self.img_paths = img_paths
+    self.mask_paths = mask_paths
+    self.aug = aug
+    self.transform = aug
+    assert len(self.img_paths) == len(self.mask_paths)
+    self.images = len(self.img_paths) #list all the files present in that folder...
+  
+  def _len_(self):
+    return len(self.img_paths) #length of dataset
+  
+  def _getitem_(self, index):
+    img_path = self.img_paths[index]
+    mask_path = self.mask_paths[index]
+    image = cv2.imread(img_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    mask = cv2.imread(mask_path)
 
-    def __len__(self):
-        return len(self.targetImgPaths) // self.batchSize
+    if self.aug:
+        augment = self.transform(image = image, mask=mask)
+        image = augment['image']
+        mask = augment['mask']
 
-    def __getitem__(self, idx):
-        """Returns tuple (input, (target1, target2)) correspond to batch #idx."""
-        i = idx * self.batchSize
-        batchInputImgPaths = self.inputImgPaths[i : i + self.batchSize]
-        batchTargetImgPaths = self.targetImgPaths[i : i + self.batchSize]
-        batchLabelsImgPaths = self.labelsImgPaths[i : i + self.batchSize]
+    image = image.astype(np.float32)
+    image = image/255.0
+    
+    mask = mask.astype(np.float32)
+    mask = rgb_to_onehot(mask)
+    mask = mask.astype(np.float32)
+    mask = mask.astype(np.float32)
+    mask = np.expand_dims(mask, axis = 0)
 
-        x = np.zeros((self.batchSize,) + self.imgSize + (3,), dtype = "float32")
-        y = np.zeros((self.batchSize,) + self.imgSize + (SEG_NUM_CLASSES,), dtype = "float32")
-        z = np.zeros((self.batchSize,) + (38,), dtype = "float32")
-        for j, (input_image, input_mask, input_label) in enumerate(zip(batchInputImgPaths, batchTargetImgPaths, batchLabelsImgPaths)):
-            img = np.load(input_image)
-            x[j] = img.astype("float32") / 255.0
-            
-            msk = np.load(input_mask)
-            msk = msk / 255.0
-            
-            y[j] = msk.astype("float32")
-            
-            lbl = np.load(input_label)
-            lbl = CLASS_MAPPING[str(lbl)]
-            lbl = tf.keras.utils.to_categorical(lbl, num_classes = CLS_NUM_CLASSES)
-            z[j] = lbl
+    return np.expand_dims(image, axis = 0), mask
 
-        return x, (y, z)
+# this function we call during traing to get set of dataloader i.e train loader and val_loader
+def getData(dataset):
+    if dataset.lower() == "consep":
+        train_ds = CoNSePDataset(
+                img_paths = images_train,
+                mask_paths = masks_train,
+                aug = True
+            )
 
-def getDataLoader(batch_size):
-    """ Create dataloader and return dataloader object which can be used with 
-        model.fit
-    """
-    inputImgPaths = sorted([os.path.join(IMAGES_DIR, x) for x in os.listdir(IMAGES_DIR)])
-    targetImgPaths = sorted([os.path.join(MASKS_DIR, x) for x in os.listdir(MASKS_DIR)])
-    labelsImgPaths = sorted([os.path.join(LABELS_DIR, x) for x in os.listdir(LABELS_DIR)])
+        test_ds = CoNSePDataset(
+                img_paths = images_test,
+                mask_paths = masks_test,
+                aug = False)
+        
+        return train_ds, test_ds
 
-    labels = []
-    for label in labelsImgPaths:
-        lbl = np.load(label)
-        labels.append(CLASS_MAPPING[str(lbl)])
+    elif (dataset.lower() == "cpm") or (dataset.lower() == "kumar"):
+        train_ds = CPMKUMARDataset(
+                img_paths = images_train,
+                mask_paths = masks_train,
+                aug = True
+            )
 
-    X_train, X_test, y_train, y_test = train_test_split(inputImgPaths, labels, test_size = TEST_SIZE, random_state = SEED)
-
-    trainInputImgPaths = X_train
-    testInputImgPaths = X_test
-    trainTargetImgPaths = [img.replace("Images", "Masks") for img in X_train]
-    testTargetImgPaths = [img.replace("Images", "Masks") for img in X_test]
-    trainLabelsImgPaths = [img.replace("Images", "Labels") for img in X_train]
-    testLabelsImgPaths = [img.replace("Images", "Labels") for img in X_test]
-
-    trainGenContrastive = waferSegDataLoaderContrastive(batchSize = batch_size, imgSize = IMAGE_SIZE, inputImgPaths = trainInputImgPaths, labelsImgPaths = trainLabelsImgPaths)
-    testGenContrastive = waferSegDataLoaderContrastive(batchSize = batch_size, imgSize = IMAGE_SIZE, inputImgPaths = testInputImgPaths, labelsImgPaths = testLabelsImgPaths)
-
-    trainGen = waferSegClassDataLoader(batchSize = batch_size, imgSize = IMAGE_SIZE, inputImgPaths = trainInputImgPaths, targetImgPaths = trainTargetImgPaths, labelsImgPaths = trainLabelsImgPaths)
-    testGen = waferSegClassDataLoader(batchSize = batch_size, imgSize = IMAGE_SIZE, inputImgPaths = testInputImgPaths, targetImgPaths = testTargetImgPaths, labelsImgPaths = testLabelsImgPaths)
-
-    return (trainGenContrastive, testGenContrastive), (trainGen, testGen)
+        test_ds = CPMKUMARDataset(
+                img_paths = images_test,
+                mask_paths = masks_test,
+                aug = False)
+        return train_ds, test_ds

@@ -16,13 +16,14 @@ import os
 def main(args):
     """ predicting given image. 
     """
-    model = tf.keras.models.load_model(os.path.join(WEIGHTS_DIR, 'WaferSegClassNet_Best.h5'), custom_objects={"diceCoef":diceCoef, "bceDiceLoss":bceDiceLoss})
-    img = np.load(args["image"]) / 255.0
+    model = tf.keras.models.load_model(os.path.join(WEIGHTS_DIR, 'best_model.h5'), custom_objects={"diceCoef": diceCoef, "bceDiceLoss": bceDiceLoss})
+    img = cv2.imread(args["image"])
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = np.expand_dims(img, 0)
-    seg, cls = model.predict(img)
+    pred = model.predict(img).numpy()
+    
     plt.imsave(os.path.join(INFERENCE_DIR, "{}.png".format(os.path.splitext(os.path.basename(args["image"]))[0])), seg[0][:, :, 0])
-    logging.info("[Info] Mask image is saved in Inference directory")
-    logging.info("[Info] your predicted class is {}".format(CLASS_NAME_MAPPING[np.argmax(cls[0], axis=-1)]))
+    logging.info("[Info] Overlay image is saved in Inference directory")
 
 if __name__ == '__main__':
     logging.basicConfig(level = logging.INFO, filename = os.path.join(LOG_DIR, 'app.log'), format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', filemode='w')

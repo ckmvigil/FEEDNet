@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# yet to be modified
 import sys
 sys.path.append("../src")
 
@@ -14,23 +15,7 @@ def main():
         cleaned data ready to be trained (saved in ../processed).
     """
     logger = logging.getLogger(__name__)
-    logger.info('[Info] Generating Images, Labels and Masks from raw data')
-
-    if not os.path.exists(IMAGES_DIR):
-        os.makedirs(IMAGES_DIR)
-    if not os.path.exists(LABELS_DIR):
-        os.makedirs(LABELS_DIR)
-    if not os.path.exists(MASKS_DIR):
-        os.makedirs(MASKS_DIR)
-
-    data = np.load(INPUT_FILE)
-
-    for i in tqdm(range(len(data["arr_0"]))):
-        np.save(os.path.join(IMAGES_DIR, f"Image_{i}.npy"), data["arr_0"][i])
-        np.save(os.path.join(LABELS_DIR, f"Image_{i}.npy"), data["arr_1"][i])
-        mask = createMask(data["arr_0"][i])
-        np.save(os.path.join(MASKS_DIR, f"Image_{i}.npy"), mask)
-    logger.info('[Info] Dataset Created Sucessfully')
+    logger.info('[Info] Generating Images, Masks from raw data')
 
 if __name__ == '__main__':
     logging.basicConfig(level = logging.INFO, filename = os.path.join(LOG_DIR, 'app.log'), format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', filemode='w')
